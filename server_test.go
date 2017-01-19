@@ -178,13 +178,8 @@ func TestServerResponseServerHeader(t *testing.T) {
 		Handler: func(ctx *RequestCtx) {
 			name := ctx.Response.Header.Server()
 			if string(name) != serverName {
-				fmt.Fprintf(ctx, "unexpected server name: %q. Expecting %q", name, serverName)
-			} else {
-				ctx.WriteString("OK")
+				fmt.Fprintf(ctx, "unexpected asdasd server name: %q. Expecting %q", name, serverName)
 			}
-
-			// make sure the server name is sent to the client after ctx.Response.Reset()
-			ctx.NotFound()
 		},
 		Name: serverName,
 	}
@@ -214,14 +209,130 @@ func TestServerResponseServerHeader(t *testing.T) {
 			t.Fatalf("unexpected error: %s", err)
 		}
 
-		if resp.StatusCode() != StatusNotFound {
-			t.Fatalf("unexpected status code: %d. Expecting %d", resp.StatusCode(), StatusNotFound)
-		}
-		if string(resp.Body()) != "404 Page not found" {
-			t.Fatalf("unexpected body: %q. Expecting %q", resp.Body(), "404 Page not found")
-		}
 		if string(resp.Header.Server()) != serverName {
 			t.Fatalf("unexpected server header: %q. Expecting %q", resp.Header.Server(), serverName)
+		}
+		if err = c.Close(); err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		close(clientCh)
+	}()
+
+	select {
+	case <-clientCh:
+	case <-time.After(time.Second):
+		t.Fatalf("timeout")
+	}
+
+	if err := ln.Close(); err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	select {
+	case <-serverCh:
+	case <-time.After(time.Second):
+		t.Fatalf("timeout")
+	}
+}
+
+func TestServerResponseServerHeaderCustom(t *testing.T) {
+	serverName := "foobar serv"
+
+	s := &Server{
+		Handler: func(ctx *RequestCtx) {
+			ctx.Response.Header.SetServer("test")
+		},
+		Name: serverName,
+	}
+
+	ln := fasthttputil.NewInmemoryListener()
+
+	serverCh := make(chan struct{})
+	go func() {
+		if err := s.Serve(ln); err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		close(serverCh)
+	}()
+
+	clientCh := make(chan struct{})
+	go func() {
+		c, err := ln.Dial()
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		if _, err = c.Write([]byte("GET / HTTP/1.1\r\nHost: aa\r\n\r\n")); err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		br := bufio.NewReader(c)
+		var resp Response
+		if err = resp.Read(br); err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+
+		if string(resp.Header.Server()) != "test" {
+			t.Fatalf("unexpected server header: %q. Expecting %q", resp.Header.Server(), "test")
+		}
+		if err = c.Close(); err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		close(clientCh)
+	}()
+
+	select {
+	case <-clientCh:
+	case <-time.After(time.Second):
+		t.Fatalf("timeout")
+	}
+
+	if err := ln.Close(); err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	select {
+	case <-serverCh:
+	case <-time.After(time.Second):
+		t.Fatalf("timeout")
+	}
+}
+
+func TestServerResponseNoServerHeader(t *testing.T) {
+	serverName := "foobar serv"
+
+	s := &Server{
+		Handler: func(ctx *RequestCtx) {
+			ctx.Response.Header.SetServer("")
+		},
+		Name: serverName,
+	}
+
+	ln := fasthttputil.NewInmemoryListener()
+
+	serverCh := make(chan struct{})
+	go func() {
+		if err := s.Serve(ln); err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		close(serverCh)
+	}()
+
+	clientCh := make(chan struct{})
+	go func() {
+		c, err := ln.Dial()
+		if err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		if _, err = c.Write([]byte("GET / HTTP/1.1\r\nHost: aa\r\n\r\n")); err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+		br := bufio.NewReader(c)
+		var resp Response
+		if err = resp.Read(br); err != nil {
+			t.Fatalf("unexpected error: %s", err)
+		}
+
+		if strings.Contains(resp.String(), "Server: ") {
+			t.Fatalf("unexpected server header: %q", resp.Header.Server())
 		}
 		if err = c.Close(); err != nil {
 			t.Fatalf("unexpected error: %s", err)
