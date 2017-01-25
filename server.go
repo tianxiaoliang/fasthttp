@@ -343,6 +343,9 @@ func CompressHandler(h RequestHandler) RequestHandler {
 func CompressHandlerLevel(h RequestHandler, level int) RequestHandler {
 	return func(ctx *RequestCtx) {
 		h(ctx)
+		if code := ctx.Response.StatusCode(); code == StatusNoContent || code == StatusNotModified {
+			return
+		}
 		ce := ctx.Response.Header.PeekBytes(strContentEncoding)
 		if len(ce) > 0 {
 			// Do not compress responses with non-empty
@@ -1584,10 +1587,6 @@ func (s *Server) serveConn(c net.Conn) error {
 			// There is no need in setting this header for http/1.1, since in http/1.1
 			// connections are keep-alive by default.
 			ctx.Response.Header.SetCanonical(strConnection, strKeepAlive)
-		}
-
-		if len(ctx.Response.Header.Server()) == 0 {
-			ctx.Response.Header.SetServerBytes(serverName)
 		}
 
 		if bw == nil {
