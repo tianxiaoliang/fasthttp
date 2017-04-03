@@ -256,6 +256,23 @@ func (c *Cookie) Parse(src string) error {
 	return c.ParseBytes(c.buf)
 }
 
+// Case insensitive equality comparison of two []byte. Assumes only
+// letters need to be matched. This is used to compare cookie key
+// value pairs.
+func cookieKeyCompare(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	for i := 0; i < len(a); i++ {
+		if a[i]|0x20 != b[i]|0x20 {
+			return false
+		}
+	}
+
+	return true
+}
+
 // ParseBytes parses Set-Cookie header.
 func (c *Cookie) ParseBytes(src []byte) error {
 	c.Reset()
@@ -272,29 +289,44 @@ func (c *Cookie) ParseBytes(src []byte) error {
 	c.value = append(c.value[:0], kv.value...)
 
 	for s.next(kv) {
-		if len(kv.key) == 0 && len(kv.value) == 0 {
-			continue
-		}
-		switch string(kv.key) {
-		case "expires":
-			v := b2s(kv.value)
-			exptime, err := time.ParseInLocation(time.RFC1123, v, time.UTC)
-			if err != nil {
-				return err
+		if len(kv.key) != 0 {
+			// Case insensitive switch on first char
+			switch kv.key[0] | 0x20 {
+			case 'e': // "expires"
+				if cookieKeyCompare(strCookieExpires, kv.key) {
+					v := b2s(kv.value)
+					exptime, err := time.ParseInLocation(time.RFC1123, v, time.UTC)
+					if err != nil {
+						return err
+					}
+					c.expire = exptime
+				}
+
+			case 'd': // "domain"
+				if cookieKeyCompare(strCookieDomain, kv.key) {
+					c.domain = append(c.domain[:0], kv.value...)
+				}
+
+			case 'p': // "path"
+				if cookieKeyCompare(strCookiePath, kv.key) {
+					c.path = append(c.path[:0], kv.value...)
+				}
 			}
-			c.expire = exptime
-		case "domain":
-			c.domain = append(c.domain[:0], kv.value...)
-		case "path":
-			c.path = append(c.path[:0], kv.value...)
-		case "":
-			switch string(kv.value) {
-			case "HttpOnly":
-				c.httpOnly = true
-			case "secure":
-				c.secure = true
+
+		} else if len(kv.value) != 0 {
+			// Case insensitive switch on first char
+			switch kv.value[0] | 0x20 {
+			case 'h': // "httponly"
+				if cookieKeyCompare(strCookieHTTPOnly, kv.value) {
+					c.httpOnly = true
+				}
+
+			case 's': // "secure"
+				if cookieKeyCompare(strCookieSecure, kv.value) {
+					c.secure = true
+				}
 			}
-		}
+		} // else empty or no match
 	}
 	return nil
 }
