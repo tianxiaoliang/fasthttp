@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"os"
 	"runtime"
 	"strings"
@@ -1149,6 +1150,90 @@ func startEchoServerExt(t *testing.T, network, addr string, isTLS bool) *testEch
 			}
 		},
 	}
+	ch := make(chan struct{})
+	go func() {
+		err := s.Serve(ln)
+		if err != nil {
+			t.Fatalf("unexpected error returned from Serve(): %s", err)
+		}
+		close(ch)
+	}()
+	return &testEchoServer{
+		s:  s,
+		ln: ln,
+		ch: ch,
+		t:  t,
+	}
+}
+
+func TestHostClientRedirectChangingSchema(t *testing.T) {
+	sHTTPS := testHostClientRedirectChangingSchemaServer(t, "tcp", "127.0.0.1:0", true, "")
+	defer sHTTPS.Stop()
+	sHTTP := testHostClientRedirectChangingSchemaServer(t, "tcp", "127.0.0.1:0", false, sHTTPS.Addr())
+	defer sHTTP.Stop()
+
+	destURL := "http://" + sHTTP.Addr() + "/baz"
+
+	urlParsed, err := url.Parse(destURL)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	var reqClient *HostClient
+
+	reqClient = &HostClient{
+		Addr: urlParsed.Host,
+		TLSConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+	}
+
+	statusCode, _, err := reqClient.GetTimeout(nil, destURL, 4000*time.Millisecond)
+	if err != nil {
+		t.Fatalf("HostClient error: %s", err)
+		return
+	}
+
+	if statusCode != 200 {
+		t.Fatalf("HostClient error code response %d", statusCode)
+		return
+	}
+
+}
+
+func testHostClientRedirectChangingSchemaServer(t *testing.T, network, addr string, isTLS bool, redirectTo string) *testEchoServer {
+	var ln net.Listener
+	var err error
+	if isTLS {
+		certFile := "./ssl-cert-snakeoil.pem"
+		keyFile := "./ssl-cert-snakeoil.key"
+		cert, err1 := tls.LoadX509KeyPair(certFile, keyFile)
+		if err1 != nil {
+			t.Fatalf("Cannot load TLS certificate: %s", err1)
+		}
+		tlsConfig := &tls.Config{
+			Certificates: []tls.Certificate{cert},
+		}
+		ln, err = tls.Listen(network, addr, tlsConfig)
+	} else {
+		ln, err = net.Listen(network, addr)
+	}
+	if err != nil {
+		t.Fatalf("cannot listen %q: %s", addr, err)
+	}
+
+	s := &Server{
+		Handler: func(ctx *RequestCtx) {
+			if redirectTo == "" {
+				ctx.SetStatusCode(200)
+			} else {
+				ctx.Redirect("https://"+redirectTo+"/baz", 301)
+				ctx.SetConnectionClose()
+			}
+		},
+	}
+
 	ch := make(chan struct{})
 	go func() {
 		err := s.Serve(ln)

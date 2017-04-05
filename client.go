@@ -756,9 +756,24 @@ func doRequestFollowRedirects(req *Request, dst []byte, url string, c clientDoer
 	resp.keepBodyBuffer = true
 	oldBody := bodyBuf.B
 	bodyBuf.B = dst
+	scheme := req.uri.Scheme()
+	req.schemaUpdate = false
 
 	redirectsCount := 0
 	for {
+		// In case redirect to different scheme
+		if redirectsCount > 0 && !bytes.Equal(scheme, req.uri.Scheme()) {
+			if strings.HasPrefix(url, string(strHTTPS)) {
+				req.isTLS = true
+				req.uri.SetSchemeBytes(strHTTPS)
+			} else {
+				req.isTLS = false
+				req.uri.SetSchemeBytes(strHTTP)
+			}
+			scheme = req.uri.Scheme()
+			req.schemaUpdate = true
+		}
+
 		req.parsedURI = false
 		req.Header.host = req.Header.host[:0]
 		req.SetRequestURI(url)
@@ -1046,6 +1061,22 @@ func (c *HostClient) doNonNilReqResp(req *Request, resp *Response) (bool, error)
 	// Free up resources occupied by response before sending the request,
 	// so the GC may reclaim these resources (e.g. response body).
 	resp.Reset()
+
+	// If we detected a redirect to another schema
+	if req.schemaUpdate {
+		if bytes.Equal(req.URI().Scheme(), strHTTPS) {
+			c.IsTLS = true
+			c.Addr = addMissingPort(string(req.Host()), true)
+			c.addrIdx = 0
+			c.addrs = nil
+		} else {
+			c.IsTLS = false
+			c.Addr = addMissingPort(string(req.Host()), false)
+			c.addrIdx = 0
+			c.addrs = nil
+		}
+		req.schemaUpdate = false
+	}
 
 	cc, err := c.acquireConn()
 	if err != nil {
