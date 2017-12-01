@@ -127,8 +127,8 @@ func (h *ResponseHeader) SetStatusCode(statusCode int) {
 	h.statusCode = statusCode
 }
 
-// GetCookie is able to returns cookie by a given key.
-func (h *ResponseHeader) GetCookie(key string) []byte {
+// PeekCookie is able to returns cookie by a given key from response.
+func (h *ResponseHeader) PeekCookie(key string) []byte {
 	return peekArgStr(h.cookies, key)
 }
 
