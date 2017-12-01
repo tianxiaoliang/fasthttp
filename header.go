@@ -127,6 +127,11 @@ func (h *ResponseHeader) SetStatusCode(statusCode int) {
 	h.statusCode = statusCode
 }
 
+// GetCookie is able to returns cookie by a given key.
+func (h *ResponseHeader) GetCookie(key string) []byte {
+	return peekArgStr(h.cookies, key)
+}
+
 // SetLastModified sets 'Last-Modified' header to the given value.
 func (h *ResponseHeader) SetLastModified(t time.Time) {
 	h.bufKV.value = AppendHTTPDate(h.bufKV.value[:0], t)
